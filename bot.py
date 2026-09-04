@@ -60,7 +60,12 @@ async def newtest_handler(message: types.Message, state: FSMContext):
         await message.answer("Bu buyruq faqat admin uchun.")
         return
     await state.set_state(AdminStates.waiting_key)
-    await message.answer("Javoblar kalitini yuboring.\nMasalan: 1C 2A 3B 4D 5B 6=15 7=20")
+    await message.answer(
+        "Javoblar kalitini yuboring.\n"
+        "Masalan: 1C 2A 3B 4D 5B 6=15 7=20\n"
+        "Bir nechta to'g'ri javob uchun vergul bilan: 6=15,20\n"
+        "(4 variantli savol uchun harf, Grid-in uchun =qiymat)"
+    )
 
 
 @dp.message(AdminStates.waiting_key)
@@ -68,7 +73,7 @@ async def receive_key(message: types.Message, state: FSMContext):
     text = message.text
     matches = re.findall(r"(\d+)\s*(=\S+|[A-Da-d])", text)
     if not matches:
-        await message.answer("Format tushunarsiz. Qaytadan urinib ko'ring.\nMasalan: 1C 2A 3B 4=15")
+        await message.answer("Format tushunarsiz. Qaytadan urinib ko'ring.\nMasalan: 1C 2A 3B 4=15,20")
         return
 
     order, q_types, answers = [], {}, {}
@@ -77,10 +82,11 @@ async def receive_key(message: types.Message, state: FSMContext):
         order.append(qid)
         if ans.startswith("="):
             q_types[qid] = "grid"
-            answers[qid] = ans[1:]
+            variants = [v.strip() for v in ans[1:].split(",") if v.strip()]
+            answers[qid] = variants
         else:
             q_types[qid] = "mc"
-            answers[qid] = ans.upper()
+            answers[qid] = [ans.upper()]
 
     order = sorted(set(order))
     code = generate_code()
@@ -151,12 +157,13 @@ async def webapp_data_handler(message: types.Message):
     lines = ["Test natijasi:\n"]
     for qid in test["order"]:
         user_ans = str(user_answers.get(str(qid), "")).strip()
-        correct_ans = str(test["answers"][qid]).strip()
-        if user_ans.lower() == correct_ans.lower():
+        correct_variants = [str(a).strip().lower() for a in test["answers"][qid]]
+        correct_display = " yoki ".join(str(a) for a in test["answers"][qid])
+        if user_ans.lower() in correct_variants:
             correct_count += 1
             lines.append(f"{qid}. ✅ Javobingiz: {user_ans or '-'}")
         else:
-            lines.append(f"{qid}. ❌ Javobingiz: {user_ans or '-'} | To'g'ri: {correct_ans}")
+            lines.append(f"{qid}. ❌ Javobingiz: {user_ans or '-'} | To'g'ri: {correct_display}")
 
     total = len(test["order"])
     lines.append(f"\nNatija: {correct_count}/{total} to'g'ri javob")
