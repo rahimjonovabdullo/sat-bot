@@ -4,6 +4,7 @@ import string
 import re
 import json
 import base64
+import os
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import CommandStart, Command
 from aiogram.fsm.context import FSMContext
@@ -15,11 +16,43 @@ TOKEN = "8985729433:AAFZXxkXMnZeIIk63m0GvKukyBMAdxC8f9Y"
 ADMIN_ID = 955037275
 WEBAPP_URL = "https://rahimjonovabdullo.github.io/sat-test/"
 
+DATA_DIR = "/data" if os.path.isdir("/data") else "."
+TESTS_FILE = os.path.join(DATA_DIR, "tests.json")
+USERS_FILE = os.path.join(DATA_DIR, "users.json")
+
 bot = Bot(token=TOKEN)
 dp = Dispatcher(storage=MemoryStorage())
 
-tests = {}
-users = {}
+
+def load_json(path, default):
+    if os.path.exists(path):
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            return default
+    return default
+
+
+def save_json(path, data):
+    try:
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False)
+    except Exception:
+        pass
+
+
+tests = load_json(TESTS_FILE, {})
+users_raw = load_json(USERS_FILE, {})
+users = {int(k): v for k, v in users_raw.items()}
+
+
+def save_tests():
+    save_json(TESTS_FILE, tests)
+
+
+def save_users():
+    save_json(USERS_FILE, {str(k): v for k, v in users.items()})
 
 
 class AdminStates(StatesGroup):
@@ -91,6 +124,7 @@ async def receive_key(message: types.Message, state: FSMContext):
     order = sorted(set(order))
     code = generate_code()
     tests[code] = {"order": order, "types": q_types, "answers": answers}
+    save_tests()
     await state.clear()
     await message.answer(f"✅ Test yaratildi!\nKod: {code}\nSavollar soni: {len(order)}")
 
@@ -118,6 +152,7 @@ async def receive_name(message: types.Message, state: FSMContext):
         return
 
     users[user_id] = {"name": full_name, "total_correct": 0, "total_questions": 0, "tests_done": 0}
+    save_users()
     await state.clear()
     await message.answer(
         f"Rahmat, {full_name}! Ro'yxatdan o'tdingiz.\nTestni boshlash uchun pastdagi tugmani bosing:",
@@ -157,8 +192,10 @@ async def webapp_data_handler(message: types.Message):
     lines = ["Test natijasi:\n"]
     for qid in test["order"]:
         user_ans = str(user_answers.get(str(qid), "")).strip()
-        correct_variants = [str(a).strip().lower() for a in test["answers"][qid]]
-        correct_display = " yoki ".join(str(a) for a in test["answers"][qid])
+        correct_variants = [str(a).strip().lower() for a in test["answers"][str(qid)] if True] if str(qid) in test["answers"] else [str(a).strip().lower() for a in test["answers"][qid]]
+        qid_key = qid if qid in test["answers"] else str(qid)
+        correct_variants = [str(a).strip().lower() for a in test["answers"][qid_key]]
+        correct_display = " yoki ".join(str(a) for a in test["answers"][qid_key])
         if user_ans.lower() in correct_variants:
             correct_count += 1
             lines.append(f"{qid}. ✅ Javobingiz: {user_ans or '-'}")
@@ -173,6 +210,7 @@ async def webapp_data_handler(message: types.Message):
         users[user_id]["total_correct"] += correct_count
         users[user_id]["total_questions"] += total
         users[user_id]["tests_done"] += 1
+        save_users()
 
 
 async def main():
