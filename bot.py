@@ -3,8 +3,8 @@ import random
 import string
 import re
 import json
-import base64
 import os
+from aiohttp import web
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import CommandStart, Command
 from aiogram.fsm.context import FSMContext
@@ -15,6 +15,7 @@ from aiogram.types import KeyboardButton, ReplyKeyboardMarkup, ReplyKeyboardRemo
 TOKEN = "8985729433:AAFZXxkXMnZeIIk63m0GvKukyBMAdxC8f9Y"
 ADMIN_ID = 955037275
 WEBAPP_URL = "https://rahimjonovabdullo.github.io/sat-test/"
+PORT = int(os.environ.get("PORT", 8080))
 
 DATA_DIR = "/data" if os.path.isdir("/data") else "."
 TESTS_FILE = os.path.join(DATA_DIR, "tests.json")
@@ -70,17 +71,11 @@ def generate_code():
             return code
 
 
-def build_webapp_url():
-    public_tests = {code: {"order": t["order"], "types": t["types"]} for code, t in tests.items()}
-    raw = json.dumps(public_tests).encode("utf-8")
-    encoded = base64.urlsafe_b64encode(raw).decode("utf-8")
-    return f"{WEBAPP_URL}?tests={encoded}"
-
-
 def main_menu_kb():
+    url = f"{WEBAPP_URL}?api=1"
     return ReplyKeyboardMarkup(
         keyboard=[
-            [KeyboardButton(text="Testni boshlash", web_app=WebAppInfo(url=build_webapp_url()))],
+            [KeyboardButton(text="Testni boshlash", web_app=WebAppInfo(url=url))],
             [KeyboardButton(text="Reyting")],
         ],
         resize_keyboard=True
@@ -96,8 +91,7 @@ async def newtest_handler(message: types.Message, state: FSMContext):
     await message.answer(
         "Javoblar kalitini yuboring.\n"
         "Masalan: 1C 2A 3B 4D 5B 6=15 7=20\n"
-        "Bir nechta to'g'ri javob uchun vergul bilan: 6=15,20\n"
-        "(4 variantli savol uchun harf, Grid-in uchun =qiymat)"
+        "Bir nechta to'g'ri javob uchun vergul bilan: 6=15,20"
     )
 
 
@@ -192,7 +186,6 @@ async def webapp_data_handler(message: types.Message):
     lines = ["Test natijasi:\n"]
     for qid in test["order"]:
         user_ans = str(user_answers.get(str(qid), "")).strip()
-        correct_variants = [str(a).strip().lower() for a in test["answers"][str(qid)] if True] if str(qid) in test["answers"] else [str(a).strip().lower() for a in test["answers"][qid]]
         qid_key = qid if qid in test["answers"] else str(qid)
         correct_variants = [str(a).strip().lower() for a in test["answers"][qid_key]]
         correct_display = " yoki ".join(str(a) for a in test["answers"][qid_key])
@@ -213,7 +206,27 @@ async def webapp_data_handler(message: types.Message):
         save_users()
 
 
+# ---- Web API server (Web App shu yerdan test ma'lumotini oladi) ----
+
+async def get_test_handler(request):
+    code = request.query.get("code", "").strip().upper()
+    if code not in tests:
+        return web.json_response({"error": "not_found"}, status=404)
+    t = tests[code]
+    return web.json_response({"order": t["order"], "types": t["types"]}, headers={"Access-Control-Allow-Origin": "*"})
+
+
+async def start_web_server():
+    app = web.Application()
+    app.router.add_get("/api/test", get_test_handler)
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, "0.0.0.0", PORT)
+    await site.start()
+
+
 async def main():
+    await start_web_server()
     await dp.start_polling(bot)
 
 
