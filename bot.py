@@ -173,38 +173,49 @@ async def webapp_data_handler(message: types.Message):
         data = json.loads(message.web_app_data.data)
         code = data.get("code", "").strip().upper()
         user_answers = data.get("answers", {})
-    except Exception:
-        await message.answer("Xatolik: ma'lumot noto'g'ri formatda.")
-        return
 
-    if code not in tests:
-        await message.answer("Test topilmadi.")
-        return
+        if code not in tests:
+            await message.answer("Test topilmadi.")
+            return
 
-    test = tests[code]
-    correct_count = 0
-    lines = ["Test natijasi:\n"]
-    for qid in test["order"]:
-        user_ans = str(user_answers.get(str(qid), "")).strip()
-        qid_key = qid if qid in test["answers"] else str(qid)
-        correct_variants = [str(a).strip().lower() for a in test["answers"][qid_key]]
-        correct_display = " yoki ".join(str(a) for a in test["answers"][qid_key])
-        if user_ans.lower() in correct_variants:
-            correct_count += 1
-            lines.append(f"{qid}. ✅ Javobingiz: {user_ans or '-'}")
-        else:
-            lines.append(f"{qid}. ❌ Javobingiz: {user_ans or '-'} | To'g'ri: {correct_display}")
+        test = tests[code]
+        correct_count = 0
+        lines = []
+        for qid in test["order"]:
+            user_ans = str(user_answers.get(str(qid), "")).strip()
+            qid_key = qid if qid in test["answers"] else str(qid)
+            correct_variants = [str(a).strip().lower() for a in test["answers"][qid_key]]
+            correct_display = " yoki ".join(str(a) for a in test["answers"][qid_key])
+            if user_ans.lower() in correct_variants:
+                correct_count += 1
+                lines.append(f"{qid}. ✅ Javobingiz: {user_ans or '-'}")
+            else:
+                lines.append(f"{qid}. ❌ Javobingiz: {user_ans or '-'} | To'g'ri: {correct_display}")
 
-    total = len(test["order"])
-    lines.append(f"\nNatija: {correct_count}/{total} to'g'ri javob")
-    await message.answer("\n".join(lines))
+        total = len(test["order"])
+        summary = f"Test tugadi! 🎉\nNatija: {correct_count}/{total} to'g'ri javob"
+        await message.answer(summary)
 
-    if user_id in users:
-        users[user_id]["total_correct"] += correct_count
-        users[user_id]["total_questions"] += total
-        users[user_id]["tests_done"] += 1
-        save_users()
+        chunk = []
+        chunk_len = 0
+        for line in lines:
+            if chunk_len + len(line) > 3500:
+                await message.answer("\n".join(chunk))
+                chunk = []
+                chunk_len = 0
+            chunk.append(line)
+            chunk_len += len(line) + 1
+        if chunk:
+            await message.answer("\n".join(chunk))
 
+        if user_id in users:
+            users[user_id]["total_correct"] += correct_count
+            users[user_id]["total_questions"] += total
+            users[user_id]["tests_done"] += 1
+            save_users()
+
+    except Exception as e:
+        await message.answer(f"Xatolik yuz berdi: {e}")
 
 # ---- Web API server (Web App shu yerdan test ma'lumotini oladi) ----
 
