@@ -60,6 +60,10 @@ class AdminStates(StatesGroup):
     waiting_key = State()
 
 
+class AdminStatStates(StatesGroup):
+    waiting_code = State()
+
+
 class RegStates(StatesGroup):
     waiting_name = State()
 
@@ -90,15 +94,15 @@ async def newtest_handler(message: types.Message, state: FSMContext):
     await state.set_state(AdminStates.waiting_key)
     await message.answer(
         "Javoblar kalitini yuboring.\n"
-        "Masalan: 1C 2A 3B 4D 5B 6=15 7=20\n"
-        "Bir nechta to'g'ri javob uchun vergul bilan: 6=15,20"
+        "Masalan: 1C 2A 3B 4D 5AB 6=15,20\n"
+        "(4 variantli savol uchun harf(lar), Grid-in uchun =qiymat(lar))"
     )
 
 
 @dp.message(AdminStates.waiting_key)
 async def receive_key(message: types.Message, state: FSMContext):
     text = message.text
-    matches = re.findall(r"(\d+)\s*(=\S+|[A-Da-d])", text)
+    matches = re.findall(r"(\d+)\s*(=\S+|[A-Da-d]+)", text)
     if not matches:
         await message.answer("Format tushunarsiz. Qaytadan urinib ko'ring.\nMasalan: 1C 2A 3B 4=15,20")
         return
@@ -113,7 +117,7 @@ async def receive_key(message: types.Message, state: FSMContext):
             answers[qid] = variants
         else:
             q_types[qid] = "mc"
-            answers[qid] = [ans.upper()]
+            answers[qid] = list(ans.upper())
 
     order = sorted(set(order))
     code = generate_code()
@@ -145,7 +149,13 @@ async def receive_name(message: types.Message, state: FSMContext):
         await message.answer("Iltimos, to'liq ism familiyangizni yozing:")
         return
 
-    users[user_id] = {"name": full_name, "total_correct": 0, "total_questions": 0, "tests_done": 0}
+    users[user_id] = {
+        "name": full_name,
+        "total_correct": 0,
+        "total_questions": 0,
+        "tests_done": 0,
+        "history": []
+    }
     save_users()
     await state.clear()
     await message.answer(
@@ -164,6 +174,51 @@ async def reyting_handler(message: types.Message):
     for i, u in enumerate(ranked[:10], start=1):
         lines.append(f"{i}. {u['name']} — {u['total_correct']} ta to'g'ri javob ({u['tests_done']} ta test)")
     await message.answer("\n".join(lines))
+
+
+@dp.message(Command("statistika"))
+async def statistika_handler(message: types.Message, state: FSMContext):
+    if message.from_user.id != ADMIN_ID:
+        await message.answer("Bu buyruq faqat admin uchun.")
+        return
+    await state.set_state(AdminStatStates.waiting_code)
+    await message.answer("Qaysi test kodi bo'yicha statistika ko'rmoqchisiz? Kodni yuboring:")
+
+
+@dp.message(AdminStatStates.waiting_code)
+async def statistika_code_handler(message: types.Message, state: FSMContext):
+    code = message.text.strip().upper()
+    await state.clear()
+
+    if code not in tests:
+        await message.answer("Bunday kodli test topilmadi.")
+        return
+
+    lines = [f"📊 Test {code} statistikasi:\n"]
+    found = False
+    for u in users.values():
+        name = u.get("name", "Noma'lum")
+        history = u.get("history", [])
+        for h in history:
+            if h["code"] == code:
+                found = True
+                lines.append(f"👤 {name}: {h['correct']}/{h['total']} to'g'ri javob")
+
+    if not found:
+        await message.answer(f"'{code}' kodli testni hali hech kim yechmagan.")
+        return
+
+    chunk = []
+    chunk_len = 0
+    for line in lines:
+        if chunk_len + len(line) > 3500:
+            await message.answer("\n".join(chunk))
+            chunk = []
+            chunk_len = 0
+        chunk.append(line)
+        chunk_len += len(line) + 1
+    if chunk:
+        await message.answer("\n".join(chunk))
 
 
 @dp.message(F.web_app_data)
@@ -212,10 +267,16 @@ async def webapp_data_handler(message: types.Message):
             users[user_id]["total_correct"] += correct_count
             users[user_id]["total_questions"] += total
             users[user_id]["tests_done"] += 1
+            users[user_id].setdefault("history", []).append({
+                "code": code,
+                "correct": correct_count,
+                "total": total
+            })
             save_users()
 
     except Exception as e:
         await message.answer(f"Xatolik yuz berdi: {e}")
+
 
 # ---- Web API server (Web App shu yerdan test ma'lumotini oladi) ----
 
