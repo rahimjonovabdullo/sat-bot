@@ -4,6 +4,7 @@ import string
 import re
 import json
 import os
+import time
 from aiohttp import web
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import CommandStart, Command
@@ -39,8 +40,8 @@ def save_json(path, data):
     try:
         with open(path, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False)
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"SAQLASHDA XATOLIK ({path}): {e}")
 
 
 tests = load_json(TESTS_FILE, {})
@@ -194,19 +195,28 @@ async def statistika_code_handler(message: types.Message, state: FSMContext):
         await message.answer("Bunday kodli test topilmadi.")
         return
 
-    lines = [f"📊 Test {code} statistikasi:\n"]
-    found = False
+    entries = []
     for u in users.values():
         name = u.get("name", "Noma'lum")
         history = u.get("history", [])
         for h in history:
             if h["code"] == code:
-                found = True
-                lines.append(f"👤 {name}: {h['correct']}/{h['total']} to'g'ri javob")
+                entries.append({
+                    "name": name,
+                    "correct": h["correct"],
+                    "total": h["total"],
+                    "time": h.get("time", 0)
+                })
 
-    if not found:
+    if not entries:
         await message.answer(f"'{code}' kodli testni hali hech kim yechmagan.")
         return
+
+    entries.sort(key=lambda e: (-e["correct"], e["time"]))
+
+    lines = [f"📊 Test {code} statistikasi:\n"]
+    for i, e in enumerate(entries, start=1):
+        lines.append(f"{i}. {e['name']} — {e['correct']}/{e['total']} to'g'ri javob")
 
     chunk = []
     chunk_len = 0
@@ -270,7 +280,8 @@ async def webapp_data_handler(message: types.Message):
             users[user_id].setdefault("history", []).append({
                 "code": code,
                 "correct": correct_count,
-                "total": total
+                "total": total,
+                "time": time.time()
             })
             save_users()
 
